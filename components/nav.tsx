@@ -20,6 +20,9 @@ export function Nav() {
           <Link href="/secretary/notes" className="hover:underline">
             Notes
           </Link>
+          <Link href="/secretary/audit" className="hover:underline">
+            Audit
+          </Link>
           <Link href="/secretary/setup" className="hover:underline">
             Setup
           </Link>

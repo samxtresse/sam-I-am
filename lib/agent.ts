@@ -9,6 +9,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { env, isStub } from "./env";
 import { TOOLS, toolByName } from "./tools";
 import { memorySummary } from "./tools/memory";
+import { audit } from "./audit";
 
 export const MAX_TOOL_ROUNDS = 10;
 
@@ -62,8 +63,13 @@ function stubReply(history: ChatMessage[]): AgentTurnResult {
 }
 
 export async function runAgentTurn(history: ChatMessage[]): Promise<AgentTurnResult> {
-  if (!client || isStub("anthropic")) return stubReply(history);
+  if (!client || isStub("anthropic")) {
+    const result = stubReply(history);
+    void audit({ kind: "agent_turn", name: "stub", output: { reply: result.reply } });
+    return result;
+  }
 
+  const turnStart = Date.now();
   const memory = await memorySummary().catch(() => "(memory unavailable)");
   const system = buildSystemPrompt(memory);
 
@@ -92,6 +98,12 @@ export async function runAgentTurn(history: ChatMessage[]): Promise<AgentTurnRes
         (b): b is Anthropic.TextBlock => b.type === "text",
       );
       const reply = textBlocks.map((b) => b.text).join("\n\n").trim();
+      void audit({
+        kind: "agent_turn",
+        name: env.anthropic.model,
+        output: { reply, rounds: round, tool_calls: toolCalls },
+        duration_ms: Date.now() - turnStart,
+      });
       return { reply, rounds: round, toolCalls };
     }
 
@@ -122,17 +134,31 @@ export async function runAgentTurn(history: ChatMessage[]): Promise<AgentTurnRes
         });
         continue;
       }
+      const callStart = Date.now();
       try {
         const out = await tool.handler((use.input ?? {}) as Record<string, unknown>);
         results.push({ type: "tool_result", tool_use_id: use.id, content: out });
+        void audit({
+          kind: "tool_call",
+          name: use.name,
+          input: use.input,
+          output: out.length > 4000 ? `${out.slice(0, 4000)}…[truncated]` : out,
+          duration_ms: Date.now() - callStart,
+        });
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
         results.push({
           type: "tool_result",
           tool_use_id: use.id,
-          content: JSON.stringify({
-            error: err instanceof Error ? err.message : String(err),
-          }),
+          content: JSON.stringify({ error: msg }),
           is_error: true,
+        });
+        void audit({
+          kind: "tool_call",
+          name: use.name,
+          input: use.input,
+          output: { error: msg },
+          duration_ms: Date.now() - callStart,
         });
       }
     }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { runMorningBrief } from "@/lib/morning-brief";
+import { audit } from "@/lib/audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,8 +15,15 @@ export async function GET(req: Request) {
   if (env.cronSecret && auth !== `Bearer ${env.cronSecret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const t0 = Date.now();
   try {
     const result = await runMorningBrief({ send: true });
+    void audit({
+      kind: "cron",
+      name: "morning-brief",
+      output: { sent: result.sent, composed_length: result.composed.length },
+      duration_ms: Date.now() - t0,
+    });
     return NextResponse.json({
       ok: true,
       sent: result.sent,

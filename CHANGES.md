@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.7 — audit log writes + viewer
+
+Every tool call, agent turn, and cron run now writes to
+`secretary_audit_log` (stub-safe in-memory ring of 500 entries when
+Supabase isn't wired). Writes are fire-and-forget — audit failures never
+break the caller.
+
+New `/secretary/audit` surface shows the most recent 100 entries with
+kind, name, duration, input preview, and output preview. Also exposed
+as JSON at `/api/secretary/audit`.
+
+Per-version notes:
+
+- `lib/audit.ts` — `audit({kind, name, input, output, duration_ms})` +
+  `getStubAudit()` for the stub-mode reader.
+- `lib/agent.ts` — wraps each tool call with duration tracking and a
+  follow-up audit insert; wraps the agent turn with start-to-finish
+  timing.
+- `app/api/secretary/cron/*` — each cron route writes one audit row with
+  its outcomes payload + duration.
+- `app/secretary/audit/page.tsx` + `app/api/secretary/audit/route.ts` —
+  gated read surfaces.
+- `components/nav.tsx` — new "Audit" tab.
+
 ## v0.6 — allowlist management
 
 `/secretary/allowlist` is the new surface for managing `secretary_allowlist`.
@@ -190,5 +214,4 @@ Lives at `/secretary`. Single-tenant, cookie-gated by `SECRETARY_AUTH_TOKEN`.
 - **Twilio SMS bot** — validate Twilio signature, gate on `TWILIO_OWNER_NUMBER`, reply via TwiML (≤12s) or REST API.
 - **Notion sync** — `save_meeting_notes` → page under `NOTION_NOTES_PAGE_ID`; TODOs → rows in `NOTION_TASKS_DB_ID`; `search_notion` tool.
 - **Voice composer** — mic button + speaker toggle via Web Speech API; preference persists in localStorage.
-- **Audit log writes** — wire `secretary_audit_log` inserts in `lib/agent.ts` around each tool call.
 - **Streaming chat** — switch the agent route to SSE; render tokens incrementally in `secretary-chat.tsx`.
