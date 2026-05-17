@@ -23,6 +23,7 @@ export type Outreach = {
     | "cancelled";
   draft_id?: string | null;
   thread_id?: string | null;
+  confirmed_slot?: { start: string; end: string } | null;
   created_at?: string;
 };
 
@@ -107,6 +108,38 @@ export async function listPendingApprovals(): Promise<Outreach[]> {
     status: "eq.pending_approval",
     order: "created_at.desc",
   });
+}
+
+// Walked by the check-replies cron to look for inbound replies and try to
+// auto-confirm the booking.
+export async function listAwaitingReply(): Promise<Outreach[]> {
+  if (isStubMode()) {
+    return STUB_PENDING.filter((r) => r.status === "sent" && !!r.thread_id);
+  }
+  return sb.select<Outreach>("secretary_booking_outreach", {
+    status: "eq.sent",
+    thread_id: "not.is.null",
+    order: "created_at.desc",
+    limit: "50",
+  });
+}
+
+export async function confirmOutreach(
+  id: number,
+  confirmedSlot: { start: string; end: string },
+) {
+  const row = await patchOutreach(id, {
+    status: "confirmed",
+    confirmed_slot: confirmedSlot,
+  });
+  return { ok: true as const, outreach: row, confirmedSlot };
+}
+
+export async function declineOutreach(id: number) {
+  return patchOutreach(id, { status: "declined" }).then((row) => ({
+    ok: true as const,
+    outreach: row,
+  }));
 }
 
 async function getOutreach(id: number): Promise<Outreach | null> {

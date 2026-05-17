@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.4 — booking-loop closure cron
+
+The `/api/secretary/cron/check-replies` endpoint (every 30 min) is real now.
+For each sent booking outreach with a thread_id, it:
+
+1. Fetches the Gmail thread, strips messages from Sam, surfaces the latest
+   recipient reply (text/plain preferred, text/html stripped as a fallback).
+2. Asks Claude (`claude-opus-4-7`, adaptive thinking, effort `low`,
+   `output_config.format` JSON-schema) to classify the reply as
+   `agree | decline | ambiguous` — when agreeing, it must echo one of the
+   originally proposed slots verbatim.
+3. On `agree` → creates the calendar event via `createCalendarEvent`
+   (invites both parties), sends a confirmation reply, marks the outreach
+   `confirmed` with the slot persisted in `confirmed_slot`.
+4. On `decline` → marks the outreach `declined`.
+5. On `ambiguous` → leaves untouched; Sam handles it manually.
+
+The cron returns a per-outreach outcome list so the response is auditable.
+Errors on individual rows don't tank the run — they're reported as
+`result: 'error'` with the message.
+
+Per-version notes:
+
+- `lib/booking-loop.ts` — new closure logic with MIME-tree body extractor,
+  Claude classifier using structured outputs, and confirmation-email
+  sender. Stub fallbacks at every layer.
+- `lib/tools/booking.ts` — adds `listAwaitingReply()`, `confirmOutreach()`
+  (persists `confirmed_slot`), `declineOutreach()`, and a `confirmed_slot`
+  field on the `Outreach` type.
+- `app/api/secretary/cron/check-replies/route.ts` — calls `runCheckReplies()`
+  and surfaces the outcome JSON.
+
 ## v0.3 — approvals action buttons
 
 `/secretary/approvals` is interactive now. Each pending outreach renders
@@ -103,8 +135,8 @@ Lives at `/secretary`. Single-tenant, cookie-gated by `SECRETARY_AUTH_TOKEN`.
 
 ## Known follow-ups (v1.1)
 
-- **Booking-loop closure** — `check-replies` cron: parse inbound replies, detect agreement, auto-create the calendar event, send confirmation.
 - **Allowlist management UI** — add/remove recipients from `secretary_allowlist` so future proposals to them skip the approval queue.
+- **Ambiguous-reply surface** — the booking-loop closure leaves ambiguous replies untouched; a dedicated UI surfacing them with one-click decide buttons would close the gap.
 - **Pre-meeting brief composer** — scan calendar for next 25 min; pull recent emails with attendees + memory; push to Slack DM with `secretary_pre_meeting_log` dedupe.
 - **Morning brief — Slack delivery** — v0.2 sends via Gmail only; Slack delivery lands once the bot is wired.
 - **Slack DM bot** — verify signing secret, gate on `SLACK_OWNER_USER_ID`, dispatch every DM through the agent loop, persist thread mapping.
