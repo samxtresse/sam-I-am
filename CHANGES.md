@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.3 — approvals action buttons
+
+`/secretary/approvals` is interactive now. Each pending outreach renders
+with **Send**, **Edit**, and **Cancel** controls; Send invokes the new
+`sendGmail()` helper, Cancel marks it cancelled, Edit swaps the subject +
+body into editable fields (Save persists, Discard reverts). Status pills
+update in place after success.
+
+Also: `propose_meeting` with an allowlisted recipient now actually fires
+the Gmail send during the agent turn (previously it stored `auto_sent`
+without sending). On failure it leaves the row at `auto_sent` so a manual
+retry can pick it up.
+
+Per-version notes:
+
+- `lib/tools/booking.ts` — adds typed `Outreach`, `sendOutreach`,
+  `cancelOutreach`, `updateOutreach`, plus auto-send on allowlisted
+  proposals (stub + live).
+- `app/api/secretary/approvals/[id]/route.ts` — gated `POST` with
+  `action: 'send' | 'cancel' | 'update'` discriminator.
+- `components/approvals/approval-row.tsx` — client row component with
+  inline edit, optimistic disabled-state, error surfacing, and a
+  post-action "sent"/"cancelled" pill so the row collapses cleanly.
+- `app/secretary/approvals/page.tsx` — server shell now hands each row
+  to the client component.
+
 ## v0.2 — morning brief composer
 
 The `/api/secretary/cron/morning-brief` endpoint is real now. Mon-Fri at 08:00 PT it:
@@ -77,8 +103,8 @@ Lives at `/secretary`. Single-tenant, cookie-gated by `SECRETARY_AUTH_TOKEN`.
 
 ## Known follow-ups (v1.1)
 
-- **Approvals action buttons** — send / edit / cancel on `/secretary/approvals` wired to Gmail send.
 - **Booking-loop closure** — `check-replies` cron: parse inbound replies, detect agreement, auto-create the calendar event, send confirmation.
+- **Allowlist management UI** — add/remove recipients from `secretary_allowlist` so future proposals to them skip the approval queue.
 - **Pre-meeting brief composer** — scan calendar for next 25 min; pull recent emails with attendees + memory; push to Slack DM with `secretary_pre_meeting_log` dedupe.
 - **Morning brief — Slack delivery** — v0.2 sends via Gmail only; Slack delivery lands once the bot is wired.
 - **Slack DM bot** — verify signing secret, gate on `SLACK_OWNER_USER_ID`, dispatch every DM through the agent loop, persist thread mapping.

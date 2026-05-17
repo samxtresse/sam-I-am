@@ -1,14 +1,34 @@
 import { sb, isStubMode } from "@/lib/supabase";
 import { draftEmail } from "./email";
+import { sendGmail } from "@/lib/google";
 
 type Input = Record<string, unknown>;
 function str(v: unknown, fallback = ""): string {
   return typeof v === "string" ? v : fallback;
 }
 
-// In-memory allowlist for stub mode. Real allowlist lives in secretary_allowlist.
+export type Outreach = {
+  id?: number;
+  recipient: string;
+  recipient_name?: string | null;
+  subject: string;
+  body: string;
+  proposed_slots: unknown[];
+  status:
+    | "auto_sent"
+    | "pending_approval"
+    | "sent"
+    | "declined"
+    | "confirmed"
+    | "cancelled";
+  draft_id?: string | null;
+  thread_id?: string | null;
+  created_at?: string;
+};
+
+// In-memory allowlist + pending store for stub mode.
 const STUB_ALLOWLIST = new Set<string>();
-const STUB_PENDING: Record<string, unknown>[] = [];
+const STUB_PENDING: Outreach[] = [];
 
 async function isAllowlisted(email: string): Promise<boolean> {
   const lc = email.toLowerCase();
@@ -33,9 +53,9 @@ export async function proposeMeeting(input: Input): Promise<string> {
   const draftResult = JSON.parse(await draftEmail({ to: [recipient], subject, body }));
 
   const allowed = await isAllowlisted(recipient);
-  const status = allowed ? "auto_sent" : "pending_approval";
+  const status: Outreach["status"] = allowed ? "auto_sent" : "pending_approval";
 
-  const row = {
+  const row: Omit<Outreach, "id"> = {
     recipient,
     recipient_name: str(input.recipient_name) || null,
     subject,
@@ -47,19 +67,107 @@ export async function proposeMeeting(input: Input): Promise<string> {
   };
 
   if (isStubMode()) {
-    STUB_PENDING.push({ id: STUB_PENDING.length + 1, ...row });
-    return JSON.stringify({ stub_mode: true, outreach: row });
+    const next: Outreach = { id: STUB_PENDING.length + 1, ...row };
+    STUB_PENDING.push(next);
+    if (status === "auto_sent") {
+      // Best-effort auto-send for stub mode — sendGmail short-circuits to a
+      // stub message id when Google isn't connected.
+      try {
+        const sent = await sendGmail({ to: [recipient], subject, body });
+        next.status = "sent";
+        next.thread_id = sent.id;
+      } catch {
+        /* leave as auto_sent so the next pass can retry */
+      }
+    }
+    return JSON.stringify({ stub_mode: true, outreach: next });
   }
 
-  const inserted = await sb.insert("secretary_booking_outreach", row);
-  // TODO v1.1: actually send the Gmail draft when status==='auto_sent'.
-  return JSON.stringify({ outreach: inserted[0] });
+  const inserted = (await sb.insert<Outreach>("secretary_booking_outreach", row))[0];
+  if (status === "auto_sent" && inserted?.id != null) {
+    try {
+      const sent = await sendGmail({ to: [recipient], subject, body });
+      await sb.update(
+        "secretary_booking_outreach",
+        { status: "sent", thread_id: sent.id, updated_at: new Date().toISOString() },
+        { id: `eq.${inserted.id}` },
+      );
+      inserted.status = "sent";
+      inserted.thread_id = sent.id;
+    } catch {
+      /* leave as auto_sent so a manual retry can pick it up */
+    }
+  }
+  return JSON.stringify({ outreach: inserted });
 }
 
-export async function listPendingApprovals() {
+export async function listPendingApprovals(): Promise<Outreach[]> {
   if (isStubMode()) return STUB_PENDING.filter((r) => r.status === "pending_approval");
-  return sb.select("secretary_booking_outreach", {
+  return sb.select<Outreach>("secretary_booking_outreach", {
     status: "eq.pending_approval",
     order: "created_at.desc",
   });
+}
+
+async function getOutreach(id: number): Promise<Outreach | null> {
+  if (isStubMode()) {
+    return STUB_PENDING.find((r) => r.id === id) ?? null;
+  }
+  const rows = await sb.select<Outreach>("secretary_booking_outreach", {
+    id: `eq.${id}`,
+    limit: "1",
+  });
+  return rows[0] ?? null;
+}
+
+async function patchOutreach(id: number, patch: Partial<Outreach>) {
+  if (isStubMode()) {
+    const row = STUB_PENDING.find((r) => r.id === id);
+    if (row) Object.assign(row, patch);
+    return row ?? null;
+  }
+  const rows = await sb.update<Outreach>(
+    "secretary_booking_outreach",
+    { ...patch, updated_at: new Date().toISOString() },
+    { id: `eq.${id}` },
+  );
+  return rows[0] ?? null;
+}
+
+export async function sendOutreach(id: number) {
+  const row = await getOutreach(id);
+  if (!row) return { error: "not found" as const };
+  if (row.status !== "pending_approval" && row.status !== "auto_sent") {
+    return { error: `cannot send from status=${row.status}` as const };
+  }
+  const sent = await sendGmail({
+    to: [row.recipient],
+    subject: row.subject,
+    body: row.body,
+  });
+  const updated = await patchOutreach(id, { status: "sent", thread_id: sent.id });
+  return { ok: true as const, sent, outreach: updated };
+}
+
+export async function cancelOutreach(id: number) {
+  const row = await getOutreach(id);
+  if (!row) return { error: "not found" as const };
+  const updated = await patchOutreach(id, { status: "cancelled" });
+  return { ok: true as const, outreach: updated };
+}
+
+export async function updateOutreach(
+  id: number,
+  patch: { subject?: string; body?: string },
+) {
+  const row = await getOutreach(id);
+  if (!row) return { error: "not found" as const };
+  if (row.status !== "pending_approval") {
+    return { error: `cannot edit from status=${row.status}` as const };
+  }
+  const updated = await patchOutreach(id, {
+    subject: patch.subject ?? row.subject,
+    body: patch.body ?? row.body,
+  });
+  return { ok: true as const, outreach: updated };
 }
