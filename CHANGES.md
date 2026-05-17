@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.5 — pre-meeting briefs cron
+
+The `/api/secretary/cron/pre-meeting-briefs` endpoint (every 15 min) is
+real now. For each calendar event starting in the next 25 minutes, it:
+
+1. Skips if `secretary_pre_meeting_log` already has the event id (idempotency).
+2. Skips solo blocks with no external attendees (logs the skip so it doesn't
+   re-evaluate every 15 minutes).
+3. Pulls up to 3 recent thread snippets per attendee from Gmail and a
+   long-term-memory excerpt.
+4. Asks Claude (`claude-opus-4-7`, effort `low`) to compose a tight ≤6-line
+   prep brief.
+5. Persists to `secretary_pre_meeting_log` and returns the brief in the
+   cron response.
+
+Slack DM delivery lands once the bot is wired; until then, each brief is
+captured in the log + returned for inspection.
+
+Per-version notes:
+
+- `lib/pre-meeting.ts` — composer, attendee-snippet fetch, dedupe via
+  `secretary_pre_meeting_log`, stub fallbacks. Single fake event in stub
+  mode so the cron is still observable when Google isn't connected.
+- `app/api/secretary/cron/pre-meeting-briefs/route.ts` — calls
+  `runPreMeetingBriefs()` and surfaces the per-event outcome JSON.
+
 ## v0.4 — booking-loop closure cron
 
 The `/api/secretary/cron/check-replies` endpoint (every 30 min) is real now.
@@ -137,7 +163,7 @@ Lives at `/secretary`. Single-tenant, cookie-gated by `SECRETARY_AUTH_TOKEN`.
 
 - **Allowlist management UI** — add/remove recipients from `secretary_allowlist` so future proposals to them skip the approval queue.
 - **Ambiguous-reply surface** — the booking-loop closure leaves ambiguous replies untouched; a dedicated UI surfacing them with one-click decide buttons would close the gap.
-- **Pre-meeting brief composer** — scan calendar for next 25 min; pull recent emails with attendees + memory; push to Slack DM with `secretary_pre_meeting_log` dedupe.
+- **Pre-meeting briefs — Slack DM delivery** — v0.5 logs each brief and returns it in the cron response; Slack DM push lands once the bot is wired.
 - **Morning brief — Slack delivery** — v0.2 sends via Gmail only; Slack delivery lands once the bot is wired.
 - **Slack DM bot** — verify signing secret, gate on `SLACK_OWNER_USER_ID`, dispatch every DM through the agent loop, persist thread mapping.
 - **Slack interactive approvals** — block-kit "Approve / Cancel" buttons on outreach DMs.
