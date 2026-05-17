@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.6 — allowlist management
+
+`/secretary/allowlist` is the new surface for managing `secretary_allowlist`.
+Add an email + optional note → future `propose_meeting` calls to that
+recipient skip the approval queue and auto-send via Gmail. Remove with one
+click. Stub-mode aware (in-memory until Supabase is wired).
+
+Also refactored `lib/tools/booking.ts` to source its allowlist check from
+the new `lib/allowlist.ts` helper instead of an internal stub Set, so the
+in-memory pending store and the persistent allowlist are no longer
+intermingled.
+
+Per-version notes:
+
+- `lib/allowlist.ts` — `listAllowlist()`, `addAllowlist(email, notes?)`,
+  `removeAllowlist(email)` with stub fallbacks and basic email validation.
+- `app/api/secretary/allowlist/route.ts` — gated GET / POST / DELETE.
+- `app/secretary/allowlist/page.tsx` + `components/allowlist/allowlist-manager.tsx` —
+  add-form + list with inline remove, optimistic state updates.
+- `components/nav.tsx` — adds the "Allowlist" tab.
+
 ## v0.5 — pre-meeting briefs cron
 
 The `/api/secretary/cron/pre-meeting-briefs` endpoint (every 15 min) is
@@ -161,7 +182,6 @@ Lives at `/secretary`. Single-tenant, cookie-gated by `SECRETARY_AUTH_TOKEN`.
 
 ## Known follow-ups (v1.1)
 
-- **Allowlist management UI** — add/remove recipients from `secretary_allowlist` so future proposals to them skip the approval queue.
 - **Ambiguous-reply surface** — the booking-loop closure leaves ambiguous replies untouched; a dedicated UI surfacing them with one-click decide buttons would close the gap.
 - **Pre-meeting briefs — Slack DM delivery** — v0.5 logs each brief and returns it in the cron response; Slack DM push lands once the bot is wired.
 - **Morning brief — Slack delivery** — v0.2 sends via Gmail only; Slack delivery lands once the bot is wired.

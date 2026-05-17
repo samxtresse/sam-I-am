@@ -14,6 +14,9 @@ export function Nav() {
           <Link href="/secretary/approvals" className="hover:underline">
             Approvals
           </Link>
+          <Link href="/secretary/allowlist" className="hover:underline">
+            Allowlist
+          </Link>
           <Link href="/secretary/notes" className="hover:underline">
             Notes
           </Link>

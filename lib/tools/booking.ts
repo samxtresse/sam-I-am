@@ -1,6 +1,7 @@
 import { sb, isStubMode } from "@/lib/supabase";
 import { draftEmail } from "./email";
 import { sendGmail } from "@/lib/google";
+import { listAllowlist } from "@/lib/allowlist";
 
 type Input = Record<string, unknown>;
 function str(v: unknown, fallback = ""): string {
@@ -27,18 +28,13 @@ export type Outreach = {
   created_at?: string;
 };
 
-// In-memory allowlist + pending store for stub mode.
-const STUB_ALLOWLIST = new Set<string>();
+// In-memory pending store for stub mode. (Allowlist lives in lib/allowlist.ts.)
 const STUB_PENDING: Outreach[] = [];
 
 async function isAllowlisted(email: string): Promise<boolean> {
   const lc = email.toLowerCase();
-  if (isStubMode()) return STUB_ALLOWLIST.has(lc);
-  const rows = await sb.select<{ email: string }>("secretary_allowlist", {
-    email: `eq.${lc}`,
-    limit: "1",
-  });
-  return rows.length > 0;
+  const all = await listAllowlist();
+  return all.some((e) => e.email === lc);
 }
 
 export async function proposeMeeting(input: Input): Promise<string> {
