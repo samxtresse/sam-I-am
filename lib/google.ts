@@ -131,3 +131,31 @@ export async function googleFetch(url: string, init: RequestInit = {}) {
   }
   return res.json();
 }
+
+// Sends a plain-text email via Gmail. Returns the message id.
+export async function sendGmail(args: {
+  to: string[];
+  subject: string;
+  body: string;
+}): Promise<{ id: string; stub?: true }> {
+  if (isGoogleStub()) {
+    return { id: `stub_msg_${Date.now()}`, stub: true };
+  }
+  const rfc822 = [
+    `To: ${args.to.join(", ")}`,
+    `Subject: ${args.subject}`,
+    "Content-Type: text/plain; charset=UTF-8",
+    "",
+    args.body,
+  ].join("\r\n");
+  const raw = Buffer.from(rfc822)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  const data = (await googleFetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    body: JSON.stringify({ raw }),
+  })) as { id: string };
+  return { id: data.id };
+}

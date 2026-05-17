@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.2 — morning brief composer
+
+The `/api/secretary/cron/morning-brief` endpoint is real now. Mon-Fri at 08:00 PT it:
+
+1. Pulls today's calendar (PT-aware day bounds, DST-handled), unread inbox highlights, open TODOs, and pending booking approvals in parallel.
+2. Sends them to Claude (`claude-opus-4-7`, adaptive thinking, effort `medium`) with a chief-of-staff system prompt and a long-term-memory excerpt.
+3. Sends the composed brief to `SECRETARY_OWNER_EMAIL` via the new `sendGmail()` helper in `lib/google.ts`.
+
+Stub fallbacks all the way down — if Anthropic isn't wired, returns a basic count-summary; if Google isn't connected, returns the composed brief without sending.
+
+Also exposed on-demand via a new `morning_brief` tool, so saying "brief me on today" in chat works the same way (defaults to compose-only; pass `send: true` to also email).
+
+Per-version notes:
+
+- `lib/morning-brief.ts` — new composer; `gatherBriefSources()` parallel-fetches, `composeMorningBrief()` calls Claude, `runMorningBrief({send})` orchestrates.
+- `lib/google.ts` — adds `sendGmail()` that base64url-encodes RFC 822 and hits `/users/me/messages/send` (stub-safe).
+- `lib/tools/brief.ts` + `lib/tools/index.ts` — wires the `morning_brief` tool into the agent.
+- `app/api/secretary/cron/morning-brief/route.ts` — calls `runMorningBrief({send: true})` and returns a JSON preview.
+
 ## v0.1 — initial bootstrap
 
 Brought sam-I-am up from an empty repo as the personal-hub sibling to ops-tracker and finance-tracker.
@@ -60,8 +79,8 @@ Lives at `/secretary`. Single-tenant, cookie-gated by `SECRETARY_AUTH_TOKEN`.
 
 - **Approvals action buttons** — send / edit / cancel on `/secretary/approvals` wired to Gmail send.
 - **Booking-loop closure** — `check-replies` cron: parse inbound replies, detect agreement, auto-create the calendar event, send confirmation.
-- **Morning brief composer** — read calendar + inbox + todos + approvals; compose; send via Gmail (+ Slack if connected).
 - **Pre-meeting brief composer** — scan calendar for next 25 min; pull recent emails with attendees + memory; push to Slack DM with `secretary_pre_meeting_log` dedupe.
+- **Morning brief — Slack delivery** — v0.2 sends via Gmail only; Slack delivery lands once the bot is wired.
 - **Slack DM bot** — verify signing secret, gate on `SLACK_OWNER_USER_ID`, dispatch every DM through the agent loop, persist thread mapping.
 - **Slack interactive approvals** — block-kit "Approve / Cancel" buttons on outreach DMs.
 - **Twilio SMS bot** — validate Twilio signature, gate on `TWILIO_OWNER_NUMBER`, reply via TwiML (≤12s) or REST API.

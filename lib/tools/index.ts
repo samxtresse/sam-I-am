@@ -8,6 +8,7 @@ import { searchMemory, saveMemory } from "./memory";
 import { saveMeetingNotes } from "./notes";
 import { addTodo, listTodos } from "./todos";
 import { proposeMeeting } from "./booking";
+import { morningBrief } from "./brief";
 
 export type ToolHandler = (input: Record<string, unknown>) => Promise<string>;
 
@@ -192,6 +193,21 @@ export const TOOLS: ToolSpec[] = [
       properties: { limit: { type: "number" } },
     },
     handler: (i) => listTodos(i),
+  },
+  {
+    name: "morning_brief",
+    description:
+      "Compose Sam's daily morning brief on demand — pulls today's calendar, unread inbox, open TODOs, and pending approvals, then writes a short friendly digest. Set send=true to also email it to Sam; default is false (just return the text so the agent can quote it in chat).",
+    input_schema: {
+      type: "object",
+      properties: {
+        send: {
+          type: "boolean",
+          description: "If true, also send via Gmail to the owner email. Default false.",
+        },
+      },
+    },
+    handler: (i) => morningBrief(i),
   },
   {
     name: "propose_meeting",
